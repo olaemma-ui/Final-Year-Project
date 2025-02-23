@@ -1,17 +1,16 @@
 package com.service.authentication.Signup;
 
-
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.service.authentication.Enums.AccountStatus;
+import com.service.authentication.Enums.AccountType;
 import com.service.authentication.Enums.VerificationType;
-import com.service.authentication.Mail.MailBody;
 import com.service.authentication.Mail.MailController;
 import com.service.authentication.Message.ResponseModel;
 import com.service.authentication.Model.UserModel;
 import com.service.authentication.Repository.UserRepository;
 import com.service.authentication.Verification.VerificationModel;
-import com.service.authentication.Verification.VerificationRepository;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.service.authentication.Verification.VerificationService;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -23,7 +22,6 @@ import org.springframework.validation.annotation.Validated;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.HashMap;
-import java.util.Random;
 import java.util.UUID;
 
 @Service
@@ -36,118 +34,132 @@ public class SignUpService {
     private HashMap<String, Object> error;
 
     private HttpStatus httpStatus;
+
     @Autowired
     private ObjectMapper mapper;
 
     @Autowired
     private UserRepository userRepository;
-    @Autowired
-    private VerificationRepository verificationRepository;
 
+    @Autowired
+    private VerificationService verificationService;
 
     @Autowired
     private MailController mailController;
 
-    public SignUpService(UserRepository userRepository, MailController mailController, ObjectMapper mapper, VerificationRepository verificationRepository) {
+    public SignUpService(UserRepository userRepository, MailController mailController, ObjectMapper mapper) {
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         this.mapper = mapper;
-        this.verificationRepository = verificationRepository;
         this.userRepository = userRepository;
         this.mailController = mailController;
     }
 
+    public ResponseEntity<ResponseModel> register(SignUpModel signUpModel, BindingResult bindingResult) {
+        resetState();
 
-    public ResponseEntity<ResponseModel> signup(SignUpModel signUpModel, BindingResult bindingResult){
-        reset();
-
-        data = signUpModel;
-        try{
-
-            if (bindingResult.hasErrors()){
-                error = new HashMap<>();
-
-                bindingResult.getFieldErrors().forEach(e->
-                        error.put(e.getField(), e.getDefaultMessage())
-                );
-                responseMessage = "Fill the required fields and valid data";
-                httpStatus = HttpStatus.BAD_REQUEST;
-            }else {
-                if (signUpModel.getPassword().equalsIgnoreCase(signUpModel.getConfirmPassword())){
-                    boolean emailExist= userRepository.findByEmail(signUpModel.getEmail()).isPresent();
-                    boolean phoneExist = false;
-                    if (!emailExist) {
-                        if (signUpModel.getPhone() != null){
-                            phoneExist =userRepository.findByPhone(signUpModel.getPhone()).isPresent();
-                        }
-                        if (!phoneExist) {
-                            String code = String.valueOf(new Random().nextInt(11111) + 88888);
-                            String sha256hex = DigestUtils.sha256Hex(code);
-
-
-                            System.out.println("code = "+code);
-                            UserModel userModel = mapper.convertValue(signUpModel, UserModel.class);
-
-
-                            VerificationModel verificationModel = new VerificationModel();
-                            verificationModel.setCodeHash(sha256hex);
-                            verificationModel.setUserId(userModel.getId());
-                            verificationModel.setVerificationType(VerificationType.REGISTRATION.name());
-                            verificationModel.setCreatedAt(Timestamp.valueOf(LocalDateTime.now()).toLocalDateTime());
-                            verificationModel.setToken(DigestUtils.sha256Hex(UUID.randomUUID().toString()));
-                            verificationModel.setResendToken(DigestUtils.sha256Hex(UUID.randomUUID().toString()));
-
-                            signUpModel.setToken(verificationModel.getToken());
-                            signUpModel.setResendToken(verificationModel.getResendToken());
-
-                            userModel.setCreatedAt(Timestamp.valueOf(LocalDateTime.now()));
-                            userModel.setAccountStatus(AccountStatus.PENDING.name());
-                            userModel.setPassword(DigestUtils.sha256Hex(signUpModel.getPassword()));
-
-                            verificationRepository.save(verificationModel);
-                            userModel.setResendToken(verificationModel.getResendToken());
-                            userModel.setToken(verificationModel.getToken());
-                            userRepository.save(userModel);
-
-                            mailController.send(new MailBody(
-                                    userModel.getEmail(),
-                                    "Dear User complete verification with the code below " + code,
-                                    "olaemma4213@gmail.com",
-                                    "6AM Verification"));
-
-                            success(signUpModel);
-                        }else{
-                            responseMessage = "Phone number already exist, do you want to login ?";
-                        }
-                    }else{
-                        responseMessage = "Email already exist, do you want to login ?";
-                    }
-                }else{
-                    responseMessage = "Password mismatch";
-                }
-
+        try {
+            if (bindingResult.hasErrors()) {
+                handleValidationErrors(bindingResult);
+                return buildResponse();
             }
-        }catch (Exception e){
+
+            if (!signUpModel.getPassword().equalsIgnoreCase(signUpModel.getConfirmPassword())) {
+                responseMessage = "Password mismatch";
+                return buildResponse();
+            }
+
+            if (isUserOrEmailExists(signUpModel)) {
+                return buildResponse();
+            }
+
+            UserModel userModel = createUser(signUpModel);
+            ResponseEntity<ResponseModel> verificationResponse = verificationService.sendVerificationCode(userModel.getEmail(), VerificationType.PROFILE.name());
+
+            if ((verificationResponse.getBody() != null) && (verificationResponse.getBody().getData() instanceof VerificationModel)) {
+                VerificationModel verification = mapper.convertValue(verificationResponse.getBody().getData(), VerificationModel.class);
+                userModel.setToken(verification.getToken());
+            }
+
+            userRepository.save(userModel);
+            httpStatus = HttpStatus.CREATED;
+            successResponse(signUpModel);
+
+        } catch (Exception e) {
             e.printStackTrace();
-            responseMessage = "Something went wrong";
-            httpStatus = HttpStatus.INTERNAL_SERVER_ERROR;
-            responseCode = "500";
+            handleUnexpectedError();
         }
 
-        return new ResponseEntity<>(new ResponseModel(responseCode, responseMessage, data, error), httpStatus);
+        return buildResponse();
     }
 
-    private void success(Object data){
+
+    public ResponseEntity<ResponseModel> getAllUserByAccountType(String accountType) {
+        resetState();
+
+        try {
+            httpStatus = HttpStatus.OK;
+            successResponse(userRepository.findByAccountType(accountType));
+        } catch (Exception e) {
+            e.printStackTrace();
+            handleUnexpectedError();
+        }
+
+        return buildResponse();
+    }
+
+    private void handleValidationErrors(BindingResult bindingResult) {
+        error = new HashMap<>();
+        bindingResult.getFieldErrors().forEach(e -> error.put(e.getField(), e.getDefaultMessage()));
+        responseMessage = "Fill the required fields with valid data";
+        httpStatus = HttpStatus.BAD_REQUEST;
+    }
+
+    private boolean isUserOrEmailExists(SignUpModel signUpModel) {
+        boolean emailExists = userRepository.findByEmail(signUpModel.getEmail()).isPresent();
+        boolean userExists = signUpModel.getAccountType().equalsIgnoreCase(AccountType.STUDENT.name())
+                && userRepository.findById(signUpModel.getIdentifier()).isPresent();
+
+        if (emailExists || userExists) {
+            responseMessage = emailExists
+                    ? "Email already exists, do you want to login?"
+                    : "This student " + signUpModel.getIdentifier() + " already exists, do you want to login?";
+            httpStatus = HttpStatus.CONFLICT;
+            return true;
+        }
+        return false;
+    }
+
+    private UserModel createUser(SignUpModel signUpModel) {
+        UserModel userModel = mapper.convertValue(signUpModel, UserModel.class);
+        userModel.setCreatedAt(Timestamp.valueOf(LocalDateTime.now()));
+        userModel.setStatus(AccountStatus.PENDING.name());
+        userModel.setUserId(UUID.randomUUID().toString());
+        userModel.setPassword(DigestUtils.sha256Hex(signUpModel.getPassword()));
+        return userModel;
+    }
+
+    private void successResponse(Object data) {
         responseCode = "00";
         responseMessage = "Success";
         this.data = data;
-        this.httpStatus = HttpStatus.CREATED;
         error = null;
     }
 
-    private void reset(){
+    private void handleUnexpectedError() {
+        responseCode = "500";
+        responseMessage = "Something went wrong";
+        httpStatus = HttpStatus.INTERNAL_SERVER_ERROR;
+    }
+
+    private void resetState() {
         responseCode = "96";
         responseMessage = null;
         error = null;
         httpStatus = HttpStatus.BAD_REQUEST;
+        data = null;
+    }
+
+    private ResponseEntity<ResponseModel> buildResponse() {
+        return new ResponseEntity<>(new ResponseModel(responseCode, responseMessage, data, error), httpStatus);
     }
 }

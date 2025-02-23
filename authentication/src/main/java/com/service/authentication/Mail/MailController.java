@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-@RestController("6am/mail/api/")
+@RestController("tgs-sgs-atm/mail/api/")
 public class MailController {
 
     @Autowired
@@ -28,7 +28,7 @@ public class MailController {
         MimeMessageHelper helper = null;
         try {
             helper = new MimeMessageHelper(message, true);
-            helper.setFrom("evento17@outlook.com");
+            helper.setFrom("noreply@girlessence.com.ng");
             helper.setTo(mailBody.getMailTo());
             helper.setSubject(mailBody.getSubject());
             helper.setText(mailBody.getBody(), true);

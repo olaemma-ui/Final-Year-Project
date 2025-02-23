@@ -1,60 +1,97 @@
 package com.service.authentication.Encryption;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
 
 import javax.crypto.SecretKey;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Function;
 
 public class JwtEncryptionDecryption {
 
-    private static final String SECRET_KEY = "your-secret-key"; // Replace with your actual secret
+    private static final String SECRET_KEY = "01234567890123456789012345678901"; // Must be 32 bytes for HS256
+    private static final SecretKey jwtKey = Keys.hmacShaKeyFor(SECRET_KEY.getBytes());
 
     // Generate JWT Token
-    public static String generateToken(Map<String, Object> claims, SecretKey encryptionKey) throws Exception {
-        String jwt = Jwts.builder()
+    public static String generateToken(Map<String, Object> claims, String subject, Date expiration) {
+        return Jwts.builder()
                 .setClaims(claims)
-                .setSubject("Lecturer")
+                .setSubject(subject)
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60)) // 1 hour expiry
-                .signWith(SignatureAlgorithm.HS256, SECRET_KEY.getBytes())
+                .setExpiration(expiration) // Expiry Date
+                .signWith(jwtKey, SignatureAlgorithm.HS256)
                 .compact();
-
-        // Encrypt JWT
-        return AESUtil.encrypt(jwt, encryptionKey);
     }
 
-    // Decrypt and Parse JWT Token
-    public static Map<String, Object> decryptToken(String encryptedToken, SecretKey encryptionKey) throws Exception {
-        // Decrypt the JWT
-        String jwt = AESUtil.decrypt(encryptedToken, encryptionKey);
 
-        // Parse the JWT
+    // Extract the user role from the token
+    public static String extractUserRole(String token) {
+        try {
+            Claims claims = extractAllClaims(token);
+            return claims.get("role", String.class);
+        } catch (Exception e) {
+            return null; // Return null if the role is not found or an error occurs
+        }
+    }
+
+    // Check if user has a specific role
+    public static boolean hasRole(String token, String role) {
+        String userRole = extractUserRole(token);
+        return userRole != null && userRole.equalsIgnoreCase(role);
+    }
+
+
+
+    // Extract all claims
+    public static Claims extractAllClaims(String token) {
+        if (token.startsWith("Bearer ")) {
+            token = token.substring(7);
+        }
+
         return Jwts.parserBuilder()
-                .setSigningKey(SECRET_KEY.getBytes())
+                .setSigningKey(jwtKey)
                 .build()
-                .parseClaimsJws(jwt)
+                .parseClaimsJws(token)
                 .getBody();
     }
 
-//    public static void main(String[] args) throws Exception {
-//        // Generate AES Key for encryption
-//        SecretKey encryptionKey = AESUtil.generateKey();
-//
-//        // Create claims for the JWT
-//        Map<String, Object> claims = new HashMap<>();
-//        claims.put("name", "Dr. John Doe");
-//        claims.put("email", "johndoe@school.edu");
-//        claims.put("role", "Lecturer");
-//
-//        // Generate Encrypted JWT
-//        String encryptedToken = generateToken(claims, encryptionKey);
-//        System.out.println("Encrypted JWT: " + encryptedToken);
-//
-//        // Decrypt JWT and read claims
-//        Map<String, Object> decryptedClaims = decryptToken(encryptedToken, encryptionKey);
-//        System.out.println("Decrypted Claims: " + decryptedClaims);
-//    }
+
+    // Extract a specific claim
+    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
+        final Claims claims = extractAllClaims(token);
+        return claimsResolver.apply(claims);
+    }
+
+    // Check if the token is expired
+    public static boolean isTokenExpired(String token) {
+        try {
+            Claims claims = extractAllClaims(token);
+            return claims.getExpiration().before(new Date());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // Extract expiration date from the token
+    public static Date getTokenExpiration(String token) {
+        return extractAllClaims(token).getExpiration();
+    }
+
+    // Extract the username (subject) from the token
+    public static String extractUsername(String token) {
+        return extractAllClaims(token).getSubject();
+    }
+
+    // Validate token
+    public static boolean isTokenValid(String token) {
+        try {
+            Claims claims = extractAllClaims(token);
+            return claims.getExpiration().after(new Date());
+        } catch (Exception e) {
+            return false;
+        }
+    }
 }

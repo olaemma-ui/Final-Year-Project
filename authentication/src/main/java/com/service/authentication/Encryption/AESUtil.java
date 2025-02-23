@@ -1,35 +1,42 @@
 package com.service.authentication.Encryption;
+
 import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.util.Base64;
 
 public class AESUtil {
 
-    private static final String ALGORITHM = "AES";
-    private static final int KEY_SIZE = 128;
+    private static final String ALGORITHM = "AES/CBC/PKCS5Padding";
+    private static final String SECRET_KEY = "1234567890123456"; // 16-byte key for AES-128
+    private static final String IV = "abcdefghijklmnop"; // 16-byte IV
 
-    // Generate AES key
-    public static SecretKey generateKey() throws Exception {
-        KeyGenerator keyGenerator = KeyGenerator.getInstance(ALGORITHM);
-        keyGenerator.init(KEY_SIZE);
-        return keyGenerator.generateKey();
+    // Generate AES SecretKey
+    public static SecretKey getSecretKey() {
+        return new SecretKeySpec(SECRET_KEY.getBytes(), "AES");
     }
 
-    // Encrypt data
+    // Encrypt Data
     public static String encrypt(String data, SecretKey secretKey) throws Exception {
         Cipher cipher = Cipher.getInstance(ALGORITHM);
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+        IvParameterSpec ivSpec = new IvParameterSpec(IV.getBytes());
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey, ivSpec);
         byte[] encryptedBytes = cipher.doFinal(data.getBytes());
         return Base64.getEncoder().encodeToString(encryptedBytes);
     }
 
-    // Decrypt data
+    // Decrypt Data
     public static String decrypt(String encryptedData, SecretKey secretKey) throws Exception {
         Cipher cipher = Cipher.getInstance(ALGORITHM);
-        cipher.init(Cipher.DECRYPT_MODE, secretKey);
-        byte[] decryptedBytes = cipher.doFinal(Base64.getDecoder().decode(encryptedData));
+        IvParameterSpec ivSpec = new IvParameterSpec(IV.getBytes());
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec);
+
+        // Fix: Trim and use MIME decoder for safety
+        byte[] decodedBytes = Base64.getMimeDecoder().decode(encryptedData.trim());
+
+        byte[] decryptedBytes = cipher.doFinal(decodedBytes);
         return new String(decryptedBytes);
     }
+
 }

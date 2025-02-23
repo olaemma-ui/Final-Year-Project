@@ -38,8 +38,8 @@ public class ProfileService {
                         responseMessage = "Invalid or Expired token";
                         httpStatus = HttpStatus.NOT_FOUND;
                         responseCode = "99";
-                        userRepository.findByToken(token).ifPresent(userModel -> {
-                            if (userModel.getAccountStatus().equalsIgnoreCase(AccountStatus.ACTIVE.name())) {
+                        userRepository.findById(token).ifPresent(userModel -> {
+                            if (userModel.getStatus().equalsIgnoreCase( AccountStatus.ACTIVE.name())) {
                                 success(userModel);
                             } else {
                                 responseMessage = "Account not Verified";

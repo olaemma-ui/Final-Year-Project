@@ -26,11 +26,11 @@ public class SignUpModel {
     @Email(message = "Enter a valid email address")
     private String email;
 
-    @Pattern(regexp = "^[0-9]{11}$", message = "Enter a valid phone number")
-    private String phone;
+//    @NotBlank(message = "This field is required (identifier)")
+    private String identifier;
 
     @NotBlank(message = "This field is required")
-    @Pattern(regexp = "(STUDENT|LECTURER|USER)", message = "Enter a valid account type")
+    @Pattern(regexp = "(STUDENT|LECTURER|ADMIN)", message = "Enter a valid account type")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String accountType;
 
@@ -47,6 +47,5 @@ public class SignUpModel {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String resendToken;
-
 
 }
