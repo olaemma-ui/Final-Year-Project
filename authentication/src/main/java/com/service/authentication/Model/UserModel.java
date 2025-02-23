@@ -15,7 +15,7 @@ import java.sql.Timestamp;
 import java.util.List;
 
 
-@Entity(name = "User")
+@Entity
 @NoArgsConstructor
 @AllArgsConstructor
 @Getter @Setter
